@@ -338,10 +338,11 @@
             transform: translateX(0);
         }
         
+        /* 修复：章节切换按钮位置下调 */
         .chapter-toggle {
             position: fixed;
             left: 10px;
-            top: 60px;
+            top: 100px; /* 从60px调整为100px，避免被顶部UI遮挡 */
             z-index: 96;
             background: rgba(100, 100, 150, 0.5);
             border: none;
@@ -354,6 +355,11 @@
             justify-content: center;
             align-items: center;
             transition: all 0.3s ease;
+        }
+        
+        .chapter-toggle.hidden {
+            opacity: 0;
+            pointer-events: none;
         }
         
         .chapter-toggle:hover {
@@ -446,6 +452,11 @@
                 width: 250px;
             }
             
+            /* 修复：移动端章节切换按钮位置也相应调整 */
+            .chapter-toggle {
+                top: 80px; /* 移动端也相应调整位置 */
+            }
+            
             .gallery-container.bed-mode .image-gallery {
                 max-width: 100%;
             }
@@ -492,7 +503,7 @@
             100% { opacity: 0; }
         }
 
-        /* 新增：书籍ZIP导入按钮样式 */
+        /* 修复：书籍ZIP导入按钮样式 */
         .book-zip-btn {
             padding: 8px 16px;
             background: #6a4a8a;
@@ -508,6 +519,21 @@
         .book-zip-btn:hover {
             background: #7a5a9a;
         }
+        
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(200, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            text-align: center;
+            max-width: 80%;
+        }
     </style>
 </head>
 <body>
@@ -518,7 +544,7 @@
             <button class="select-btn" onclick="document.getElementById('folderInput').click()">导入章节</button>
             <button class="select-btn" onclick="document.getElementById('bookInput').click()">导入书籍</button>
             <button class="select-btn" onclick="document.getElementById('zipInput').click()">导入ZIP</button>
-            <!-- 新增：书籍ZIP导入按钮 -->
+            <!-- 修复：书籍ZIP导入按钮类名 -->
             <button class="book-zip-btn" onclick="document.getElementById('bookZipInput').click()">导入书籍ZIP</button>
             <button class="view-toggle" id="viewToggle">切换到图床模式</button>
             <input type="file" id="fileInput" accept="image/*" multiple>
@@ -529,6 +555,7 @@
         </div>
     </div>
     
+    <!-- 章节切换按钮位置已通过CSS调整 -->
     <button class="chapter-toggle" id="chapterToggle">📖</button>
     
     <div class="chapter-sidebar" id="chapterSidebar">
@@ -549,6 +576,7 @@
                    <div class="ipad-buttons">
                        <button class="ipad-btn" onclick="document.getElementById('fileInput').click()">选择多张图片</button>
                        <button class="ipad-btn" onclick="document.getElementById('zipInput').click()">导入章节ZIP</button>
+                       <!-- 修复：iPad按钮中的书籍ZIP按钮 -->
                        <button class="ipad-btn" onclick="document.getElementById('bookZipInput').click()">导入书籍ZIP</button>
                        <button class="ipad-btn" onclick="showiPadHelp()">iPad使用帮助</button>
                    </div>
@@ -563,7 +591,7 @@
     <div class="scroll-indicator" id="scrollIndicator"></div>
     
     <div class="footer" id="footer">
-        <p>点击屏幕中央显示/隐藏控制界面 | 使用键盘上下键或两侧按钮导航 | 双击图片缩放 | 按V切换视图模式</p>
+        <p>使用方向键或两侧按钮导航 | 点击页面/H键隐藏界面 | 按V切换视图 | 支持二级ZIP导入</p>
     </div>
     
     <div class="info-panel hidden" id="infoPanel">
@@ -601,15 +629,36 @@
             });
         }
 
+        // 显示错误消息
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `
+                <h3>错误</h3>
+                <p>${message}</p>
+                <button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #fff; color: #c00; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
+            `;
+            document.body.appendChild(errorDiv);
+        }
+
         // 处理书籍ZIP文件（二级结构）
         async function handleBookZipFile(bookZipFile) {
+            console.log('开始处理书籍ZIP文件:', bookZipFile.name);
+            
             const loader = document.createElement('div');
             loader.className = 'loader';
             loader.style.display = 'block';
             document.getElementById('galleryContainer').appendChild(loader);
             
             try {
+                // 检查文件大小
+                if (bookZipFile.size === 0) {
+                    throw new Error('ZIP文件为空');
+                }
+                
                 const bookZip = await JSZip.loadAsync(bookZipFile);
+                console.log('书籍ZIP加载成功，文件数量:', Object.keys(bookZip.files).length);
+                
                 const chapterZips = [];
                 
                 // 获取书籍ZIP中的所有文件
@@ -617,43 +666,56 @@
                     return a.localeCompare(b, 'zh-CN', { numeric: true });
                 });
                 
+                console.log('文件列表:', fileNames);
+                
                 // 收集所有章节ZIP文件
                 for (const fileName of fileNames) {
                     const zipEntry = bookZip.files[fileName];
                     
                     // 跳过文件夹和隐藏文件
                     if (zipEntry.dir || fileName.startsWith('__MACOSX/') || fileName.includes('/.')) {
+                        console.log('跳过文件:', fileName);
                         continue;
                     }
                     
                     // 检查是否为ZIP文件（章节ZIP）
-                    if (fileName.match(/\.(zip|cbz)$/i)) {
-                        const chapterBlob = await zipEntry.async('blob');
-                        const chapterName = fileName.replace(/\.(zip|cbz)$/i, '');
-                        chapterZips.push({
-                            name: chapterName,
-                            blob: chapterBlob
-                        });
+                    if (fileName.toLowerCase().match(/\.(zip|cbz)$/)) {
+                        console.log('找到章节ZIP:', fileName);
+                        try {
+                            const chapterBlob = await zipEntry.async('blob');
+                            const chapterName = fileName.replace(/\.(zip|cbz)$/i, '');
+                            chapterZips.push({
+                                name: chapterName,
+                                blob: chapterBlob
+                            });
+                        } catch (error) {
+                            console.error('处理章节ZIP时出错:', fileName, error);
+                        }
                     }
                 }
                 
+                console.log('找到的章节ZIP数量:', chapterZips.length);
+                
                 if (chapterZips.length === 0) {
-                    showHint('书籍ZIP中未找到章节ZIP文件');
-                    return;
+                    throw new Error('书籍ZIP中未找到有效的章节ZIP文件');
                 }
                 
                 // 处理每个章节ZIP
                 chapters = [];
                 for (const chapterZip of chapterZips) {
-                    const chapter = await processChapterZip(chapterZip.blob, chapterZip.name);
-                    if (chapter && chapter.files.length > 0) {
-                        chapters.push(chapter);
+                    try {
+                        const chapter = await processChapterZip(chapterZip.blob, chapterZip.name);
+                        if (chapter && chapter.files.length > 0) {
+                            chapters.push(chapter);
+                            console.log(`章节 "${chapter.name}" 加载成功，图片数量: ${chapter.files.length}`);
+                        }
+                    } catch (error) {
+                        console.error(`处理章节 "${chapterZip.name}" 时出错:`, error);
                     }
                 }
                 
                 if (chapters.length === 0) {
-                    showHint('未找到有效的章节内容');
-                    return;
+                    throw new Error('所有章节ZIP处理失败，未找到有效的图片内容');
                 }
                 
                 // 更新UI
@@ -668,7 +730,7 @@
                 
             } catch (error) {
                 console.error('书籍ZIP处理错误:', error);
-                showHint('书籍ZIP处理失败，请检查文件格式');
+                showError(`书籍ZIP处理失败: ${error.message}`);
             } finally {
                 loader.remove();
             }
@@ -677,6 +739,7 @@
         // 处理章节ZIP文件
         async function processChapterZip(chapterBlob, chapterName) {
             try {
+                console.log(`处理章节ZIP: ${chapterName}`);
                 const chapterZip = await JSZip.loadAsync(chapterBlob);
                 const imageFiles = [];
                 
@@ -684,6 +747,8 @@
                 const fileNames = Object.keys(chapterZip.files).sort((a, b) => {
                     return a.localeCompare(b, 'zh-CN', { numeric: true });
                 });
+                
+                console.log(`章节 "${chapterName}" 中的文件:`, fileNames);
                 
                 // 处理每个图片文件
                 for (const fileName of fileNames) {
@@ -695,38 +760,58 @@
                     }
                     
                     // 检查是否为图片文件
-                    if (fileName.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
-                        const blob = await zipEntry.async('blob');
-                        const file = new File([blob], fileName, { type: getMimeType(fileName) });
-                        imageFiles.push(file);
+                    if (fileName.toLowerCase().match(/\.(jpg|jpeg|png|gif|bmp|webp)$/)) {
+                        try {
+                            const blob = await zipEntry.async('blob');
+                            // 从文件路径中提取文件名
+                            const fileNameOnly = fileName.split('/').pop();
+                            const file = new File([blob], fileNameOnly, { type: getMimeType(fileNameOnly) });
+                            imageFiles.push(file);
+                            console.log(`添加图片: ${fileNameOnly}`);
+                        } catch (error) {
+                            console.error(`处理图片文件时出错: ${fileName}`, error);
+                        }
                     }
                 }
                 
+                console.log(`章节 "${chapterName}" 共找到 ${imageFiles.length} 张图片`);
+                
                 return {
                     name: chapterName,
-                    files: imageFiles
+                    files: naturalSort(imageFiles)
                 };
                 
             } catch (error) {
                 console.error(`章节ZIP处理错误 (${chapterName}):`, error);
-                return null;
+                throw error;
             }
         }
         
         // 处理普通ZIP文件（单章节）
         async function handleZipFile(zipFile) {
+            console.log('开始处理普通ZIP文件:', zipFile.name);
+            
             const loader = document.createElement('div');
             loader.className = 'loader';
             loader.style.display = 'block';
             document.getElementById('galleryContainer').appendChild(loader);
             
             try {
+                // 检查文件大小
+                if (zipFile.size === 0) {
+                    throw new Error('ZIP文件为空');
+                }
+                
                 const zip = await JSZip.loadAsync(zipFile);
+                console.log('ZIP文件加载成功，文件数量:', Object.keys(zip.files).length);
+                
                 const imageFiles = [];
                 
                 const fileNames = Object.keys(zip.files).sort((a, b) => {
                     return a.localeCompare(b, 'zh-CN', { numeric: true });
                 });
+                
+                console.log('ZIP文件内容:', fileNames);
                 
                 for (const fileName of fileNames) {
                     const zipEntry = zip.files[fileName];
@@ -735,24 +820,32 @@
                         continue;
                     }
                     
-                    if (fileName.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
-                        const blob = await zipEntry.async('blob');
-                        const file = new File([blob], fileName, { type: getMimeType(fileName) });
-                        imageFiles.push(file);
+                    if (fileName.toLowerCase().match(/\.(jpg|jpeg|png|gif|bmp|webp)$/)) {
+                        try {
+                            const blob = await zipEntry.async('blob');
+                            // 从文件路径中提取文件名
+                            const fileNameOnly = fileName.split('/').pop();
+                            const file = new File([blob], fileNameOnly, { type: getMimeType(fileNameOnly) });
+                            imageFiles.push(file);
+                            console.log(`添加图片: ${fileNameOnly}`);
+                        } catch (error) {
+                            console.error(`处理图片文件时出错: ${fileName}`, error);
+                        }
                     }
                 }
                 
+                console.log(`共找到 ${imageFiles.length} 张图片`);
+                
                 if (imageFiles.length === 0) {
-                    showHint('ZIP文件中未找到图片文件');
-                    return;
+                    throw new Error('ZIP文件中未找到有效的图片文件');
                 }
                 
-                handleFiles(imageFiles, `ZIP: ${zipFile.name}`);
+                handleFiles(naturalSort(imageFiles), `ZIP: ${zipFile.name}`);
                 showHint(`从ZIP文件中加载了 ${imageFiles.length} 张图片`);
                 
             } catch (error) {
                 console.error('ZIP文件处理错误:', error);
-                showHint('ZIP文件处理失败，请检查文件格式');
+                showError(`ZIP文件处理失败: ${error.message}`);
             } finally {
                 loader.remove();
             }
@@ -817,6 +910,10 @@
                 img.addEventListener('load', () => {
                     URL.revokeObjectURL(img.src);
                     updateScrollIndicator();
+                });
+                
+                img.addEventListener('error', () => {
+                    console.error('图片加载失败:', file.name);
                 });
                 
                 item.appendChild(img);
@@ -1001,6 +1098,7 @@
             }
         }
         
+        // 修复：更新信息面板时检查UI状态
         function updateInfoPanel() {
             const infoPanel = document.getElementById('infoPanel');
             const imageInfo = document.getElementById('imageInfo');
@@ -1029,7 +1127,12 @@
                 };
                 img.src = URL.createObjectURL(file);
                 
-                infoPanel.classList.remove('hidden');
+                // 只有在UI可见时才显示信息面板
+                if (uiVisible) {
+                    infoPanel.classList.remove('hidden');
+                } else {
+                    infoPanel.classList.add('hidden');
+                }
             } else {
                 infoPanel.classList.add('hidden');
             }
@@ -1044,6 +1147,7 @@
             const nextBtn = document.getElementById('nextBtn');
             const indicator = document.getElementById('scrollIndicator');
             const infoPanel = document.getElementById('infoPanel');
+            const chapterToggle = document.getElementById('chapterToggle');
             
             if (uiVisible) {
                 header.classList.remove('hidden');
@@ -1052,6 +1156,7 @@
                 nextBtn.classList.remove('hidden');
                 indicator.classList.remove('hidden');
                 infoPanel.classList.remove('hidden');
+                chapterToggle.classList.remove('hidden');
             } else {
                 header.classList.add('hidden');
                 footer.classList.add('hidden');
@@ -1059,6 +1164,7 @@
                 nextBtn.classList.add('hidden');
                 indicator.classList.add('hidden');
                 infoPanel.classList.add('hidden');
+                chapterToggle.classList.add('hidden');
             }
         }
         
