@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地漫画阅读器 - 章节目录版</title>
+    <style>
+        /* 原有样式保持不变 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .header.hidden {
+            transform: translateY(-100%);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+            transition: opacity 0.3s ease;
+        }
+        
+        .select-btn {
+            padding: 8px 16px;
+            background: #4a4a8a;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .select-btn:hover {
+            background: #5a5aaa;
+        }
+        
+        /* 新增：视图切换按钮样式 */
+        .view-toggle {
+            padding: 8px 16px;
+            background: #3a3a6a;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            margin-left: 10px;
+        }
+        
+        .view-toggle:hover, .view-toggle.active {
+            background: #5a5aaa;
+        }
+        
+        .gallery-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            background: #1a1a2e;
+            cursor: pointer;
+        }
+        
+        /* 新增：图床模式样式 */
+        .gallery-container.bed-mode {
+            background: #2a2a3e;
+        }
+        
+        .gallery-container.bed-mode .image-gallery {
+            max-width: 640px;
+            margin: 0 auto;
+            background: #1a1a2e;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        .gallery-container.bed-mode .image-item {
+            min-height: auto;
+            padding: 0;
+            width: 100%; /* 确保容器宽度100% */
+        }
+        
+        .gallery-container.bed-mode .image-item img {
+            width: 100%; /* 宽度充满容器 */
+            height: auto; /* 高度自适应 */
+            max-height: none; /* 移除最大高度限制 */
+            border-radius: 0;
+            object-fit: contain; /* 保持比例 */
+        }
+        
+        .image-gallery {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .image-item {
+            width: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 0;
+            padding: 0;
+            position: relative;
+            pointer-events: auto; /* 确保图片容器可以被交互 */
+        }
+        
+        .image-item img {
+            max-width: 100%;
+            max-height: auto;
+            object-fit: contain;
+            transition: transform 0.3s ease;
+            /* 新增：禁止图片被选中 */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            pointer-events: none; /* 防止在某些浏览器中图片被单独选中 */
+        }
+        
+       /* .image-item img.zoom {
+            transform: scale(1.5);
+            cursor: zoom-out;
+        }*/
+        
+        .nav-btn {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 50px;
+            height: 100px;
+            background: rgba(100, 100, 150, 0.3);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            z-index: 90;
+        }
+        
+        .nav-btn.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(100, 100, 150, 0.6);
+            width: 60px;
+        }
+        
+        .prev-btn {
+            left: 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .next-btn {
+            right: 0;
+            border-radius: 8px 0 0 8px;
+        }
+        
+        .scroll-indicator {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 80;
+            transition: opacity 0.3s ease;
+        }
+        
+        .scroll-indicator.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .scroll-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .scroll-dot.active {
+            background: rgba(255, 255, 255, 0.9);
+            transform: scale(1.3);
+        }
+        
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            font-size: 0.8rem;
+            color: #777;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .footer.hidden {
+            transform: translateY(100%);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        /* 图片信息面板 */
+        .info-panel {
+            position: fixed;
+            left: 20px;
+            bottom: 50px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            max-width: 300px;
+            transition: opacity 0.3s ease;
+            z-index: 90;
+        }
+        
+        .info-panel.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        /* 隐藏文件输入 */
+        #fileInput, #folderInput, #bookInput {
+            display: none;
+        }
+        
+        /* 加载指示器 */
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        
+        /* 滚动条样式 */
+        .gallery-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .gallery-container::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        .gallery-container::-webkit-scrollbar-thumb {
+            background: rgba(100, 100, 150, 0.5);
+            border-radius: 3px;
+        }
+        
+        .gallery-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 100, 150, 0.7);
+        }
+        
+        /* 章节目录侧边栏 */
+        .chapter-sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 280px;
+            background: rgba(20, 20, 35, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 95;
+            overflow-y: auto;
+            padding: 60px 0 40px 0;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .chapter-sidebar.visible {
+            transform: translateX(0);
+        }
+        
+        .chapter-toggle {
+            position: fixed;
+            left: 10px;
+            top: 60px;
+            z-index: 96;
+            background: rgba(100, 100, 150, 0.5);
+            border: none;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .chapter-toggle:hover {
+            background: rgba(100, 100, 150, 0.8);
+            transform: scale(1.1);
+        }
+        
+        .chapter-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .chapter-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .chapter-item:hover {
+            background: rgba(100, 100, 150, 0.3);
+        }
+        
+        .chapter-item.active {
+            background: rgba(100, 100, 150, 0.5);
+            border-left: 4px solid #5a5aaa;
+        }
+        
+        .chapter-title {
+            font-weight: 500;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .chapter-images {
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+        
+        .chapter-header {
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .close-sidebar {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .header {
+                padding: 10px 15px;
+            }
+            
+            h1 {
+                font-size: 1.2rem;
+            }
+            
+            .nav-btn {
+                width: 40px;
+                height: 80px;
+            }
+            
+            .nav-btn:hover {
+                width: 45px;
+            }
+            
+            .scroll-indicator {
+                right: 10px;
+            }
+            
+            .info-panel {
+                left: 10px;
+                bottom: 40px;
+                max-width: 200px;
+                font-size: 0.75rem;
+            }
+            
+            .chapter-sidebar {
+                width: 250px;
+            }
+            
+            /* 新增：在小屏幕上图床模式全宽显示 */
+            .gallery-container.bed-mode .image-gallery {
+                max-width: 100%;
+            }
+        }
+        
+        /* 初始提示样式 */
+        .placeholder {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #666;
+            font-size: 1.2rem;
+            text-align: center;
+            padding: 0 20px;
+        }
+        
+        /* UI控制提示 */
+        .ui-hint {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            text-align: center;
+            animation: fadeOut 3s forwards;
+            pointer-events: none;
+        }
+        
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header" id="header">
+        <h1>本地漫画阅读器</h1>
+        <div>
+            <button class="select-btn" onclick="document.getElementById('fileInput').click()">导入图片</button>
+            <button class="select-btn" onclick="document.getElementById('folderInput').click()">导入章节</button>
+            <button class="select-btn" onclick="document.getElementById('bookInput').click()">导入书籍</button>
+            <!-- 新增：视图切换按钮 -->
+            <button class="view-toggle" id="viewToggle">切换到图床模式</button>
+            <input type="file" id="fileInput" accept="image/*" multiple>
+            <input type="file" id="folderInput" webkitdirectory directory multiple>
+            <input type="file" id="bookInput" webkitdirectory directory multiple>
+        </div>
+    </div>
+    
+    <button class="chapter-toggle" id="chapterToggle">📖</button>
+    
+    <div class="chapter-sidebar" id="chapterSidebar">
+        <div class="chapter-header">
+            <h3>章节目录</h3>
+            <button class="close-sidebar" id="closeSidebar">✕</button>
+        </div>
+        <ul class="chapter-list" id="chapterList">
+            <!-- 章节将动态添加到这里 -->
+        </ul>
+    </div>
+    
+    <div class="gallery-container" id="galleryContainer">
+        <div class="image-gallery" id="imageGallery">
+            <div class="placeholder">
+                <p>请选择图片文件或文件夹开始浏览<br><br><small>支持拖放图片文件到此处</small></p>
+            </div>
+        </div>
+    </div>
+    
+    <button class="nav-btn prev-btn" id="prevBtn">❮</button>
+    <button class="nav-btn next-btn" id="nextBtn">❯</button>
+    
+    <div class="scroll-indicator" id="scrollIndicator"></div>
+    
+    <div class="footer" id="footer">
+        <!-- 更新：添加图床模式提示 -->
+        <p>点击屏幕中央显示/隐藏控制界面 | 使用键盘上下键或两侧按钮导航 | 双击图片缩放 | 按V切换视图模式</p>
+    </div>
+    
+    <div class="info-panel hidden" id="infoPanel">
+        <div id="imageInfo">图片信息加载中...</div>
+    </div>
+
+    <script>
+        let currentImageIndex = 0;
+        let imageItems = [];
+        let imageFiles = [];
+        let uiVisible = true;
+        let chapters = [];
+        let currentChapterIndex = -1;
+        // 新增：图床模式标志
+        let isBedMode = false;
+        
+        // 从文件名提取数字序号（改进版）
+        function extractNumber(filename) {
+            // 匹配多种命名格式：001.jpg, img1.png, 1-1.jpg, 第1张.jpg等
+            const match = filename.match(/(?:^|\D)(\d+)(?=\D*$)/);
+            return match ? parseInt(match[1], 10) : 0;
+        }
+        
+        // 自然排序算法
+        function naturalSort(files) {
+            return files.sort((a, b) => {
+                const numA = extractNumber(a.name);
+                const numB = extractNumber(b.name);
+                
+                // 如果都能提取到数字，按数字排序
+                if (numA !== 0 && numB !== 0) {
+                    return numA - numB;
+                }
+                
+                // 否则按字符串排序
+                return a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+            });
+        }
+        
+        // 处理文件选择
+        function handleFiles(files, chapterName = "") {
+            if (files.length === 0) return;
+            
+            // 按照自然顺序排序
+            imageFiles = naturalSort(files);
+            
+            // 清空现有内容
+            const gallery = document.getElementById('imageGallery');
+            gallery.innerHTML = '';
+            
+            // 创建图片项
+            imageItems = [];
+            imageFiles.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'image-item';
+                
+                const img = document.createElement('img');
+                img.loading = 'eager';
+                img.src = URL.createObjectURL(file);
+                img.alt = file.name;
+                
+                // 添加双击缩放功能到图片
+               /* img.addEventListener('dblclick', () => {
+                    img.classList.toggle('zoom');
+                });*/
+                
+                // 将点击事件从图片移动到容器（图片所在区域）
+               /* item.addEventListener('click', (e) => {
+                    // 如果点击的是缩放状态的图片，则取消缩放
+                    if (e.target.classList.contains('zoom')) {
+                        e.target.classList.remove('zoom');
+                    } else {
+                        // 否则切换UI显示/隐藏
+                        toggleUI();
+                    }
+                });*/
+                
+                // 添加加载完成事件
+                img.addEventListener('load', () => {
+                    URL.revokeObjectURL(img.src);
+                    updateScrollIndicator();
+                });
+                
+                item.appendChild(img);
+                gallery.appendChild(item);
+                imageItems.push(item);
+            });
+            
+            // 更新章节信息
+            if (chapterName) {
+                document.querySelector('h1').textContent = chapterName;
+                currentChapterIndex = chapters.findIndex(ch => ch.name === chapterName);
+            }
+            
+            // 初始化滚动指示器
+            initScrollIndicator();
+            
+            // 滚动到顶部
+            currentImageIndex = 0;
+            scrollToImage(0);
+            
+            // 显示提示信息
+            showHint(`已加载 ${imageFiles.length} 张图片`);
+        }
+        
+        // 处理文件夹选择
+        function handleFolder(files, folderName = "") {
+            if (files.length === 0) return;
+            
+            // 过滤出图片文件
+            const imageFiles = Array.from(files).filter(file => 
+                file.type.startsWith('image/')
+            );
+            
+            if (imageFiles.length === 0) {
+                showHint('所选文件夹中没有图片文件');
+                return;
+            }
+            
+            // 处理图片文件
+            handleFiles(imageFiles, folderName);
+        }
+        
+        // 处理书籍导入（三级结构）
+        function handleBook(files) {
+            if (!files || files.length === 0) return;
+            
+            // 创建文件路径映射
+            const fileMap = {};
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const pathParts = file.webkitRelativePath.split('/');
+                
+                // 确保是三级结构：书籍/章节/图片
+                if (pathParts.length === 3) {
+                    const bookName = pathParts[0];
+                    const chapterName = pathParts[1];
+                    const fileName = pathParts[2];
+                    
+                    // 初始化数据结构
+                    if (!fileMap[bookName]) {
+                        fileMap[bookName] = {};
+                    }
+                    if (!fileMap[bookName][chapterName]) {
+                        fileMap[bookName][chapterName] = [];
+                    }
+                    
+                    // 添加文件到对应章节
+                    fileMap[bookName][chapterName].push(file);
+                }
+            }
+            
+            // 提取书籍和章节信息
+            const bookNames = Object.keys(fileMap);
+            if (bookNames.length === 0) {
+                showHint('未找到有效的书籍结构');
+                return;
+            }
+            
+            const bookName = bookNames[0];
+            const chapterMap = fileMap[bookName];
+            const chapterNames = Object.keys(chapterMap);
+            
+            // 按章节名称排序（假设章节名称为数字）
+            chapterNames.sort((a, b) => {
+                const numA = parseInt(a, 10) || 0;
+                const numB = parseInt(b, 10) || 0;
+                return numA - numB;
+            });
+            
+            // 构建章节数据
+            chapters = chapterNames.map(name => {
+                return {
+                    name: name,
+                    files: chapterMap[name]
+                };
+            });
+            
+            // 更新UI
+            updateChapterList();
+            
+            // 加载第一个章节
+            if (chapters.length > 0) {
+                loadChapter(0);
+            }
+            
+            // 显示提示信息
+            showHint(`已加载书籍《${bookName}》，共 ${chapters.length} 个章节`);
+        }
+        
+        // 加载指定章节
+        function loadChapter(index) {
+            if (index < 0 || index >= chapters.length) return;
+            
+            currentChapterIndex = index;
+            const chapter = chapters[index];
+            
+            // 处理该章节的图片
+            handleFiles(chapter.files, chapter.name);
+            
+            // 更新章节列表高亮
+            updateChapterHighlight();
+        }
+        
+        // 更新章节列表
+        function updateChapterList() {
+            const chapterList = document.getElementById('chapterList');
+            chapterList.innerHTML = '';
+            
+            chapters.forEach((chapter, index) => {
+                const li = document.createElement('li');
+                li.className = 'chapter-item';
+                if (index === currentChapterIndex) {
+                    li.classList.add('active');
+                }
+                
+                li.innerHTML = `
+                    <div class="chapter-title">
+                        <span>${chapter.name}</span>
+                        <span class="chapter-images">${chapter.files.length} 张</span>
+                    </div>
+                `;
+                
+                li.addEventListener('click', () => {
+                    loadChapter(index);
+                    toggleChapterSidebar();
+                });
+                
+                chapterList.appendChild(li);
+            });
+        }
+        
+        // 更新章节高亮
+        function updateChapterHighlight() {
+            const items = document.querySelectorAll('.chapter-item');
+            items.forEach((item, index) => {
+                if (index === currentChapterIndex) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+        
+        // 切换章节目录侧边栏
+        function toggleChapterSidebar() {
+            const sidebar = document.getElementById('chapterSidebar');
+            sidebar.classList.toggle('visible');
+        }
+        
+        // 初始化滚动指示器
+        function initScrollIndicator() {
+            const indicator = document.getElementById('scrollIndicator');
+            indicator.innerHTML = '';
+            
+            imageItems.forEach((_, index) => {
+                const dot = document.createElement('div');
+                dot.className = 'scroll-dot';
+                if (index === currentImageIndex) {
+                    dot.classList.add('active');
+                }
+                
+                dot.addEventListener('click', () => {
+                    scrollToImage(index);
+                });
+                
+                indicator.appendChild(dot);
+            });
+        }
+        
+        // 更新滚动指示器
+        function updateScrollIndicator() {
+            const dots = document.querySelectorAll('.scroll-dot');
+            dots.forEach((dot, index) => {
+                if (index === currentImageIndex) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+        }
+        
+        // 滚动到指定图片
+        function scrollToImage(index) {
+            if (index < 0 || index >= imageItems.length) return;
+            
+            currentImageIndex = index;
+            
+            if (imageItems[index]) {
+                imageItems[index].scrollIntoView({ behavior: 'smooth' });
+                updateScrollIndicator();
+                updateInfoPanel();
+            }
+        }
+        
+        // 更新信息面板
+        function updateInfoPanel() {
+            const infoPanel = document.getElementById('infoPanel');
+            const imageInfo = document.getElementById('imageInfo');
+            
+            if (imageFiles.length > 0 && currentImageIndex < imageFiles.length) {
+                const file = imageFiles[currentImageIndex];
+                imageInfo.innerHTML = `
+                    <strong>${file.name}</strong><br>
+                    尺寸: 加载中...<br>
+                    类型: ${file.type}<br>
+                    大小: ${Math.round(file.size / 1024)} KB<br>
+                    ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
+                    进度: ${currentImageIndex + 1} / ${imageFiles.length}
+                `;
+                
+                // 异步获取图片尺寸
+                const img = new Image();
+                img.onload = function() {
+                    imageInfo.innerHTML = `
+                        <strong>${file.name}</strong><br>
+                        尺寸: ${img.naturalWidth} × ${img.naturalHeight}<br>
+                        类型: ${file.type}<br>
+                        大小: ${Math.round(file.size / 1024)} KB<br>
+                        ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
+                        进度: ${currentImageIndex + 1} / ${imageFiles.length}
+                    `;
+                };
+                img.src = URL.createObjectURL(file);
+                
+                infoPanel.classList.remove('hidden');
+            } else {
+                infoPanel.classList.add('hidden');
+            }
+        }
+        
+        // 切换UI显示/隐藏
+        function toggleUI() {
+            uiVisible = !uiVisible;
+            
+            const header = document.getElementById('header');
+            const footer = document.getElementById('footer');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            const indicator = document.getElementById('scrollIndicator');
+            const infoPanel = document.getElementById('infoPanel');
+            
+            if (uiVisible) {
+                header.classList.remove('hidden');
+                footer.classList.remove('hidden');
+                prevBtn.classList.remove('hidden');
+                nextBtn.classList.remove('hidden');
+                indicator.classList.remove('hidden');
+                infoPanel.classList.remove('hidden');
+            } else {
+                header.classList.add('hidden');
+                footer.classList.add('hidden');
+                prevBtn.classList.add('hidden');
+                nextBtn.classList.add('hidden');
+                indicator.classList.add('hidden');
+                infoPanel.classList.add('hidden');
+            }
+        }
+        
+        // 显示提示信息
+        function showHint(message) {
+            const hint = document.createElement('div');
+            hint.className = 'ui-hint';
+            hint.textContent = message;
+            document.body.appendChild(hint);
+            
+            setTimeout(() => {
+                document.body.removeChild(hint);
+            }, 3000);
+        }
+        
+        // 切换图床模式
+        function toggleBedMode() {
+            isBedMode = !isBedMode;
+            const galleryContainer = document.getElementById('galleryContainer');
+            const viewToggle = document.getElementById('viewToggle');
+            
+            if (isBedMode) {
+                galleryContainer.classList.add('bed-mode');
+                viewToggle.textContent = '切换到阅读模式';
+                showHint('已切换到图床模式');
+            } else {
+                galleryContainer.classList.remove('bed-mode');
+                viewToggle.textContent = '切换到图床模式';
+                showHint('已切换到阅读模式');
+            }
+        }
+        
+        // 初始化事件监听
+        function initEventListeners() {
+            // 文件选择事件
+            document.getElementById('fileInput').addEventListener('change', (e) => {
+                handleFiles(Array.from(e.target.files));
+                e.target.value = ''; // 清除选择，允许重复选择相同文件
+            });
+            
+            // 文件夹选择事件
+            document.getElementById('folderInput').addEventListener('change', (e) => {
+                handleFolder(Array.from(e.target.files));
+                e.target.value = '';
+            });
+            
+            // 书籍选择事件
+            document.getElementById('bookInput').addEventListener('change', (e) => {
+                handleBook(Array.from(e.target.files));
+                e.target.value = '';
+            });
+            
+            // 导航按钮事件
+            document.getElementById('prevBtn').addEventListener('click', () => {
+                scrollToImage(currentImageIndex - 1);
+            });
+            
+            document.getElementById('nextBtn').addEventListener('click', () => {
+                scrollToImage(currentImageIndex + 1);
+            });
+            
+            // 章节侧边栏事件
+            document.getElementById('chapterToggle').addEventListener('click', toggleChapterSidebar);
+            document.getElementById('closeSidebar').addEventListener('click', toggleChapterSidebar);
+            
+            // 键盘事件
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                    scrollToImage(currentImageIndex - 1);
+                } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                    scrollToImage(currentImageIndex + 1);
+                } else if (e.key === 'h' || e.key === 'H') {
+                    toggleUI();
+                } else if (e.key === 'v' || e.key === 'V') {
+                    toggleBedMode();
+                }
+            });
+            
+            // 滚动事件
+            const galleryContainer = document.getElementById('galleryContainer');
+            galleryContainer.addEventListener('scroll', () => {
+                // 计算当前可见的图片索引
+                const scrollPos = galleryContainer.scrollTop + galleryContainer.clientHeight / 2;
+                
+                for (let i = 0; i < imageItems.length; i++) {
+                    const item = imageItems[i];
+                    if (item.offsetTop + item.clientHeight >= scrollPos) {
+                        if (currentImageIndex !== i) {
+                            currentImageIndex = i;
+                            updateScrollIndicator();
+                            updateInfoPanel();
+                        }
+                        break;
+                    }
+                }
+            });
+            
+            // 拖放事件 - 修改为在整个画廊容器上监听
+            galleryContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                galleryContainer.style.backgroundColor = '#2a2a3e';
+            });
+            
+            galleryContainer.addEventListener('dragleave', () => {
+                galleryContainer.style.backgroundColor = '#1a1a2e';
+            });
+            
+            galleryContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                galleryContainer.style.backgroundColor = '#1a1a2e';
+                
+                const files = Array.from(e.dataTransfer.files);
+                const imageFiles = files.filter(file => file.type.startsWith('image/'));
+                
+                if (imageFiles.length > 0) {
+                    handleFiles(imageFiles);
+                }
+            });
+            
+            // 视图切换事件
+            document.getElementById('viewToggle').addEventListener('click', toggleBedMode);
+            
+            // 添加对整个画廊容器的点击事件，用于切换UI
+            galleryContainer.addEventListener('click', (e) => {
+                // 确保点击的不是图片本身（图片点击已经在item上处理）
+                if (!e.target.matches('img')) {
+                    toggleUI();
+                }
+            });
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            initEventListeners();
+            
+            // 显示初始提示
+            showHint('使用方向键或两侧按钮导航 | 点击页面/H键隐藏界面 | 按V切换视图');
+        });
+    </script>
+</body>
+</html>
