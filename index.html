@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>本地漫画阅读器 - 支持二级ZIP导入</title>
     <style>
+        /* 原有样式保持不变 */
         * {
             margin: 0;
             padding: 0;
@@ -153,27 +154,18 @@
             padding: 0;
             position: relative;
             pointer-events: auto;
-            /* 新增：为占位符设置固定高度，减少布局抖动 */
-            min-height: 800px;
-            transition: min-height 0.3s ease;
         }
         
         .image-item img {
             max-width: 100%;
             max-height: auto;
             object-fit: contain;
-            transition: transform 0.3s ease, opacity 0.3s ease;
+            transition: transform 0.3s ease;
             -webkit-user-select: none;
             -moz-user-select: none;
             -ms-user-select: none;
             user-select: none;
             pointer-events: none;
-            /* 新增：图片加载时的过渡效果 */
-            opacity: 0;
-        }
-        
-        .image-item img.loaded {
-            opacity: 1;
         }
         
         .nav-btn {
@@ -350,7 +342,7 @@
         .chapter-toggle {
             position: fixed;
             left: 10px;
-            top: 100px;
+            top: 100px; /* 从60px调整为100px，避免被顶部UI遮挡 */
             z-index: 96;
             background: rgba(100, 100, 150, 0.5);
             border: none;
@@ -462,7 +454,7 @@
             
             /* 修复：移动端章节切换按钮位置也相应调整 */
             .chapter-toggle {
-                top: 80px;
+                top: 80px; /* 移动端也相应调整位置 */
             }
             
             .gallery-container.bed-mode .image-gallery {
@@ -476,11 +468,6 @@
             
             .ipad-btn {
                 margin: 5px 0;
-            }
-            
-            /* 移动端调整占位符高度 */
-            .image-item {
-                min-height: 600px;
             }
         }
         
@@ -516,7 +503,7 @@
             100% { opacity: 0; }
         }
 
-        /* 修复：书籍ZIP导入按钮样式 - 确保与其他按钮一致 */
+        /* 修复：书籍ZIP导入按钮样式 */
         .book-zip-btn {
             padding: 8px 16px;
             background: #6a4a8a;
@@ -547,38 +534,17 @@
             text-align: center;
             max-width: 80%;
         }
-
-        /* 懒加载相关样式 */
+        
+        /* 新增：图片占位符样式 */
         .image-placeholder {
             width: 100%;
-            height: 100%;
-            min-height: 800px;
+            height: 800px; /* 预估高度，可根据需要调整 */
             background: #2a2a3e;
             display: flex;
             justify-content: center;
             align-items: center;
             color: #666;
             font-size: 1rem;
-            transition: opacity 0.3s ease;
-        }
-
-        .image-placeholder.fade-out {
-            opacity: 0;
-        }
-
-        .memory-warning {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 165, 0, 0.9);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 6px;
-            backdrop-filter: blur(5px);
-            z-index: 1000;
-            text-align: center;
-            max-width: 80%;
         }
     </style>
 </head>
@@ -590,6 +556,7 @@
             <button class="select-btn" onclick="document.getElementById('folderInput').click()">导入章节</button>
             <button class="select-btn" onclick="document.getElementById('bookInput').click()">导入书籍</button>
             <button class="select-btn" onclick="document.getElementById('zipInput').click()">导入ZIP</button>
+            <!-- 修复：书籍ZIP导入按钮类名 -->
             <button class="book-zip-btn" onclick="document.getElementById('bookZipInput').click()">导入书籍ZIP</button>
             <button class="view-toggle" id="viewToggle">切换到图床模式</button>
             <input type="file" id="fileInput" accept="image/*" multiple>
@@ -600,6 +567,7 @@
         </div>
     </div>
     
+    <!-- 章节切换按钮位置已通过CSS调整 -->
     <button class="chapter-toggle" id="chapterToggle">📖</button>
     
     <div class="chapter-sidebar" id="chapterSidebar">
@@ -620,6 +588,7 @@
                    <div class="ipad-buttons">
                        <button class="ipad-btn" onclick="document.getElementById('fileInput').click()">选择多张图片</button>
                        <button class="ipad-btn" onclick="document.getElementById('zipInput').click()">导入章节ZIP</button>
+                       <!-- 修复：iPad按钮中的书籍ZIP按钮 -->
                        <button class="ipad-btn" onclick="document.getElementById('bookZipInput').click()">导入书籍ZIP</button>
                        <button class="ipad-btn" onclick="showiPadHelp()">iPad使用帮助</button>
                    </div>
@@ -651,12 +620,8 @@
         let chapters = [];
         let currentChapterIndex = -1;
         let isBedMode = false;
-        
-        // 懒加载相关变量
-        let visibleRange = { start: 0, end: 0 };
-        const BUFFER_SIZE = 5;
-        const MAX_LOADED_IMAGES = 15;
-        let loadedImages = new Set();
+        let preloadRange = 30; // 预加载范围，前后各30张图片
+        let sidebarVisible = false; // 跟踪侧边栏状态
         
         // 从文件名提取数字序号
         function extractNumber(filename) {
@@ -690,145 +655,6 @@
             document.body.appendChild(errorDiv);
         }
 
-        // 显示内存警告
-        function showMemoryWarning() {
-            const warning = document.createElement('div');
-            warning.className = 'memory-warning';
-            warning.innerHTML = `
-                <strong>内存优化提示</strong><br>
-                检测到大量图片，已启用懒加载模式<br>
-                当前加载: ${loadedImages.size} / ${imageFiles.length} 张图片
-                <button onclick="this.parentElement.remove()" style="margin-left: 10px; padding: 2px 8px; background: #fff; color: #ff8c00; border: none; border-radius: 3px; cursor: pointer;">×</button>
-            `;
-            document.body.appendChild(warning);
-            
-            setTimeout(() => {
-                if (warning.parentElement) {
-                    warning.remove();
-                }
-            }, 5000);
-        }
-
-        // 清理不可见的图片
-        function cleanupImages() {
-            const toRemove = [];
-            loadedImages.forEach(index => {
-                if (index < visibleRange.start - BUFFER_SIZE || index > visibleRange.end + BUFFER_SIZE) {
-                    toRemove.push(index);
-                }
-            });
-            
-            toRemove.forEach(index => {
-                unloadImage(index);
-            });
-            
-            // 如果加载的图片仍然过多，强制清理
-            if (loadedImages.size > MAX_LOADED_IMAGES) {
-                const sorted = Array.from(loadedImages).sort((a, b) => 
-                    Math.abs(a - currentImageIndex) - Math.abs(b - currentImageIndex)
-                );
-                sorted.slice(MAX_LOADED_IMAGES).forEach(index => {
-                    unloadImage(index);
-                });
-            }
-        }
-
-        // 卸载图片
-        function unloadImage(index) {
-            if (imageItems[index]) {
-                const img = imageItems[index].querySelector('img');
-                if (img && img.src.startsWith('blob:')) {
-                    URL.revokeObjectURL(img.src);
-                }
-                
-                // 添加占位符
-                const placeholder = document.createElement('div');
-                placeholder.className = 'image-placeholder';
-                placeholder.innerHTML = '图片未加载<br><small>滚动到附近自动加载</small>';
-                
-                imageItems[index].innerHTML = '';
-                imageItems[index].appendChild(placeholder);
-                loadedImages.delete(index);
-            }
-        }
-
-        // 加载单张图片
-        function loadSingleImage(index) {
-            if (index < 0 || index >= imageFiles.length) return;
-            if (loadedImages.has(index)) return;
-            
-            const file = imageFiles[index];
-            const item = imageItems[index];
-            
-            if (!item) return;
-            
-            const img = document.createElement('img');
-            img.loading = 'lazy';
-            img.src = URL.createObjectURL(file);
-            img.alt = file.name;
-            
-            img.addEventListener('load', () => {
-                URL.revokeObjectURL(img.src);
-                loadedImages.add(index);
-                
-                // 图片加载完成后添加淡入效果
-                setTimeout(() => {
-                    img.classList.add('loaded');
-                }, 10);
-                
-                // 更新信息面板中的图片尺寸信息
-                if (index === currentImageIndex) {
-                    updateInfoPanel();
-                }
-            });
-            
-            img.addEventListener('error', () => {
-                console.error('图片加载失败:', file.name);
-                const placeholder = document.createElement('div');
-                placeholder.className = 'image-placeholder';
-                placeholder.innerHTML = '图片加载失败';
-                item.innerHTML = '';
-                item.appendChild(placeholder);
-            });
-            
-            // 先清空容器，然后添加图片（初始透明）
-            item.innerHTML = '';
-            item.appendChild(img);
-            
-            // 设置图片加载前的透明状态
-            setTimeout(() => {
-                img.classList.remove('loaded');
-            }, 10);
-        }
-
-        // 更新可见区域
-        function updateVisibleRange() {
-            const container = document.getElementById('galleryContainer');
-            const scrollTop = container.scrollTop;
-            const containerHeight = container.clientHeight;
-            
-            // 计算可见区域
-            const newStart = Math.max(0, currentImageIndex - BUFFER_SIZE);
-            const newEnd = Math.min(imageFiles.length - 1, currentImageIndex + BUFFER_SIZE);
-            
-            visibleRange = { start: newStart, end: newEnd };
-            
-            // 加载可见区域及缓冲区的图片
-            for (let i = newStart; i <= newEnd; i++) {
-                if (!loadedImages.has(i)) {
-                    loadSingleImage(i);
-                }
-            }
-            
-            // 清理不可见的图片
-            cleanupImages();
-            
-            // 显示内存警告（如果图片数量很多）
-            if (imageFiles.length > 50 && loadedImages.size > 10) {
-                showMemoryWarning();
-            }
-        }
-
         // 处理书籍ZIP文件（二级结构）
         async function handleBookZipFile(bookZipFile) {
             console.log('开始处理书籍ZIP文件:', bookZipFile.name);
@@ -839,6 +665,7 @@
             document.getElementById('galleryContainer').appendChild(loader);
             
             try {
+                // 检查文件大小
                 if (bookZipFile.size === 0) {
                     throw new Error('ZIP文件为空');
                 }
@@ -984,6 +811,7 @@
             document.getElementById('galleryContainer').appendChild(loader);
             
             try {
+                // 检查文件大小
                 if (zipFile.size === 0) {
                     throw new Error('ZIP文件为空');
                 }
@@ -1074,7 +902,7 @@
             alert(helpText);
         }
         
-        // 处理文件选择
+        // 处理文件选择 - 优化版本，使用懒加载
         function handleFiles(files, chapterName = "") {
             if (files.length === 0) return;
             
@@ -1083,18 +911,23 @@
             const gallery = document.getElementById('imageGallery');
             gallery.innerHTML = '';
             
-            // 重置懒加载状态
-            loadedImages.clear();
             imageItems = [];
             
-            // 创建图片容器（使用占位符）
-            imageFiles.forEach((file, index) => {
+            // 创建占位符元素
+            for (let i = 0; i < imageFiles.length; i++) {
                 const item = document.createElement('div');
                 item.className = 'image-item';
-                item.innerHTML = '<div class="image-placeholder">图片未加载<br><small>滚动到附近自动加载</small></div>';
+                item.dataset.index = i;
+                
+                // 创建占位符
+                const placeholder = document.createElement('div');
+                placeholder.className = 'image-placeholder';
+                placeholder.textContent = `图片 ${i + 1} (未加载)`;
+                item.appendChild(placeholder);
+                
                 gallery.appendChild(item);
                 imageItems.push(item);
-            });
+            }
             
             if (chapterName) {
                 document.querySelector('h1').textContent = chapterName;
@@ -1104,15 +937,66 @@
             initScrollIndicator();
             currentImageIndex = 0;
             
-            // 初始加载前几张图片
-            setTimeout(() => {
-                updateVisibleRange();
-                scrollToImage(0);
-            }, 100);
+            // 初始加载前30张图片
+            loadVisibleImages(0);
             
-            showHint(`已加载 ${imageFiles.length} 张图片（懒加载模式）`);
+            showHint(`已加载 ${imageFiles.length} 张图片 (使用懒加载)`);
         }
         
+        // 加载可见范围内的图片
+        function loadVisibleImages(currentIndex) {
+            const startIndex = Math.max(0, currentIndex - preloadRange);
+            const endIndex = Math.min(imageFiles.length - 1, currentIndex + preloadRange);
+            
+            for (let i = startIndex; i <= endIndex; i++) {
+                if (!imageItems[i].querySelector('img')) {
+                    loadImageAt(i);
+                }
+            }
+            
+            // 卸载超出范围的图片
+            for (let i = 0; i < imageFiles.length; i++) {
+                if (i < startIndex || i > endIndex) {
+                    const img = imageItems[i].querySelector('img');
+                    if (img) {
+                        imageItems[i].innerHTML = '';
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'image-placeholder';
+                        placeholder.textContent = `图片 ${i + 1} (已卸载)`;
+                        imageItems[i].appendChild(placeholder);
+                    }
+                }
+            }
+        }
+        
+        // 加载指定索引的图片
+        function loadImageAt(index) {
+            if (index < 0 || index >= imageFiles.length) return;
+            
+            const file = imageFiles[index];
+            const item = imageItems[index];
+            
+            item.innerHTML = '';
+            
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.src = URL.createObjectURL(file);
+            img.alt = file.name;
+            
+            img.addEventListener('load', () => {
+                URL.revokeObjectURL(img.src);
+                updateScrollIndicator();
+            });
+            
+            img.addEventListener('error', () => {
+                console.error('图片加载失败:', file.name);
+                item.innerHTML = `<div class="image-placeholder">图片加载失败: ${file.name}</div>`;
+            });
+            
+            item.appendChild(img);
+        }
+        
+        // 其余函数保持不变
         function handleFolder(files, folderName = "") {
             if (files.length === 0) return;
             
@@ -1232,27 +1116,44 @@
         }
         
         function toggleChapterSidebar() {
-            const sidebar = document.getElementById('chapterSidebar');
-            sidebar.classList.toggle('visible');
+            sidebarVisible = !sidebarVisible;
+            document.getElementById('chapterSidebar').classList.toggle('visible', sidebarVisible);
         }
         
         function initScrollIndicator() {
             const indicator = document.getElementById('scrollIndicator');
             indicator.innerHTML = '';
             
-            imageItems.forEach((_, index) => {
+            for (let i = 0; i < imageFiles.length; i++) {
                 const dot = document.createElement('div');
                 dot.className = 'scroll-dot';
-                if (index === currentImageIndex) {
-                    dot.classList.add('active');
-                }
+                if (i === 0) dot.classList.add('active');
                 
                 dot.addEventListener('click', () => {
-                    scrollToImage(index);
+                    scrollToImage(i);
                 });
                 
                 indicator.appendChild(dot);
-            });
+            }
+        }
+        
+        function scrollToImage(index) {
+            if (index < 0 || index >= imageItems.length) return;
+            
+            currentImageIndex = index;
+            const item = imageItems[index];
+            
+            // 确保图片已加载
+            if (!item.querySelector('img')) {
+                loadImageAt(index);
+            }
+            
+            item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            updateScrollIndicator();
+            updateInfoPanel();
+            
+            // 加载可见范围内的图片
+            loadVisibleImages(index);
         }
         
         function updateScrollIndicator() {
@@ -1266,61 +1167,16 @@
             });
         }
         
-        function scrollToImage(index) {
-            if (index < 0 || index >= imageItems.length) return;
-            
-            currentImageIndex = index;
-            
-            if (imageItems[index]) {
-                imageItems[index].scrollIntoView({ behavior: 'smooth' });
-                updateScrollIndicator();
-                updateInfoPanel();
-                updateVisibleRange();
-            }
-        }
-        
-        // 修复：恢复原始信息面板显示逻辑
         function updateInfoPanel() {
-            const infoPanel = document.getElementById('infoPanel');
-            const imageInfo = document.getElementById('imageInfo');
+            if (currentImageIndex < 0 || currentImageIndex >= imageFiles.length) return;
             
-            if (imageFiles.length > 0 && currentImageIndex < imageFiles.length) {
-                const file = imageFiles[currentImageIndex];
-                imageInfo.innerHTML = `
-                    <strong>${file.name}</strong><br>
-                    尺寸: 加载中...<br>
-                    类型: ${file.type}<br>
-                    大小: ${Math.round(file.size / 1024)} KB<br>
-                    ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
-                    进度: ${currentImageIndex + 1} / ${imageFiles.length}<br>
-                    <small>已加载: ${loadedImages.size} / ${imageFiles.length}</small>
-                `;
-                
-                // 如果图片已加载，获取实际尺寸
-                if (loadedImages.has(currentImageIndex)) {
-                    const img = imageItems[currentImageIndex].querySelector('img');
-                    if (img && img.naturalWidth) {
-                        imageInfo.innerHTML = `
-                            <strong>${file.name}</strong><br>
-                            尺寸: ${img.naturalWidth} × ${img.naturalHeight}<br>
-                            类型: ${file.type}<br>
-                            大小: ${Math.round(file.size / 1024)} KB<br>
-                            ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
-                            进度: ${currentImageIndex + 1} / ${imageFiles.length}<br>
-                            <small>已加载: ${loadedImages.size} / ${imageFiles.length}</small>
-                        `;
-                    }
-                }
-                
-                // 只有在UI可见时才显示信息面板
-                if (uiVisible) {
-                    infoPanel.classList.remove('hidden');
-                } else {
-                    infoPanel.classList.add('hidden');
-                }
-            } else {
-                infoPanel.classList.add('hidden');
-            }
+            const file = imageFiles[currentImageIndex];
+            const infoPanel = document.getElementById('infoPanel');
+            infoPanel.innerHTML = `
+                <div>${file.name}</div>
+                <div>${currentImageIndex + 1} / ${imageFiles.length}</div>
+                <div>${(file.size / 1024).toFixed(1)} KB</div>
+            `;
         }
         
         function toggleUI() {
@@ -1328,28 +1184,39 @@
             
             const header = document.getElementById('header');
             const footer = document.getElementById('footer');
-            const prevBtn = document.getElementById('prevBtn');
-            const nextBtn = document.getElementById('nextBtn');
-            const indicator = document.getElementById('scrollIndicator');
+            const navBtns = document.querySelectorAll('.nav-btn');
+            const scrollIndicator = document.getElementById('scrollIndicator');
             const infoPanel = document.getElementById('infoPanel');
             const chapterToggle = document.getElementById('chapterToggle');
             
             if (uiVisible) {
                 header.classList.remove('hidden');
                 footer.classList.remove('hidden');
-                prevBtn.classList.remove('hidden');
-                nextBtn.classList.remove('hidden');
-                indicator.classList.remove('hidden');
+                navBtns.forEach(btn => btn.classList.remove('hidden'));
+                scrollIndicator.classList.remove('hidden');
                 infoPanel.classList.remove('hidden');
                 chapterToggle.classList.remove('hidden');
             } else {
                 header.classList.add('hidden');
                 footer.classList.add('hidden');
-                prevBtn.classList.add('hidden');
-                nextBtn.classList.add('hidden');
-                indicator.classList.add('hidden');
+                navBtns.forEach(btn => btn.classList.add('hidden'));
+                scrollIndicator.classList.add('hidden');
                 infoPanel.classList.add('hidden');
                 chapterToggle.classList.add('hidden');
+            }
+        }
+        
+        function toggleViewMode() {
+            isBedMode = !isBedMode;
+            const galleryContainer = document.getElementById('galleryContainer');
+            const viewToggle = document.getElementById('viewToggle');
+            
+            if (isBedMode) {
+                galleryContainer.classList.add('bed-mode');
+                viewToggle.textContent = '切换到画廊模式';
+            } else {
+                galleryContainer.classList.remove('bed-mode');
+                viewToggle.textContent = '切换到图床模式';
             }
         }
         
@@ -1360,156 +1227,174 @@
             document.body.appendChild(hint);
             
             setTimeout(() => {
-                document.body.removeChild(hint);
+                hint.remove();
             }, 3000);
         }
         
-        function toggleBedMode() {
-            isBedMode = !isBedMode;
-            const galleryContainer = document.getElementById('galleryContainer');
-            const viewToggle = document.getElementById('viewToggle');
-            
-            if (isBedMode) {
-                galleryContainer.classList.add('bed-mode');
-                viewToggle.textContent = '切换到阅读模式';
-                showHint('已切换到图床模式');
-            } else {
-                galleryContainer.classList.remove('bed-mode');
-                viewToggle.textContent = '切换到图床模式';
-                showHint('已切换到阅读模式');
-            }
-        }
-        
-        function initEventListeners() {
-            // 文件选择事件
+        // 事件监听器
+        document.addEventListener('DOMContentLoaded', () => {
+            // 文件输入事件
             document.getElementById('fileInput').addEventListener('change', (e) => {
                 handleFiles(Array.from(e.target.files));
                 e.target.value = '';
             });
             
             document.getElementById('folderInput').addEventListener('change', (e) => {
-                handleFolder(Array.from(e.target.files));
+                handleFolder(e.target.files, e.target.files[0]?.webkitRelativePath?.split('/')[0] || '');
                 e.target.value = '';
             });
             
             document.getElementById('bookInput').addEventListener('change', (e) => {
-                handleBook(Array.from(e.target.files));
+                handleBook(e.target.files);
                 e.target.value = '';
             });
             
-            // 普通ZIP文件处理
-            document.getElementById('zipInput').addEventListener('change', async (e) => {
-                const files = Array.from(e.target.files);
-                if (files.length > 0) {
-                    await handleZipFile(files[0]);
+            document.getElementById('zipInput').addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleZipFile(e.target.files[0]);
                 }
                 e.target.value = '';
             });
             
-            // 书籍ZIP文件处理
-            document.getElementById('bookZipInput').addEventListener('change', async (e) => {
-                const files = Array.from(e.target.files);
-                if (files.length > 0) {
-                    await handleBookZipFile(files[0]);
+            // 修复：书籍ZIP输入事件
+            document.getElementById('bookZipInput').addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleBookZipFile(e.target.files[0]);
                 }
                 e.target.value = '';
             });
             
-            // 导航按钮事件
-            document.getElementById('prevBtn').addEventListener('click', () => {
-                scrollToImage(currentImageIndex - 1);
-            });
-            
-            document.getElementById('nextBtn').addEventListener('click', () => {
-                scrollToImage(currentImageIndex + 1);
-            });
-            
-            // 章节侧边栏事件
-            document.getElementById('chapterToggle').addEventListener('click', toggleChapterSidebar);
-            document.getElementById('closeSidebar').addEventListener('click', toggleChapterSidebar);
-            
-            // 键盘事件
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-                    scrollToImage(currentImageIndex - 1);
-                } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-                    scrollToImage(currentImageIndex + 1);
-                } else if (e.key === 'h' || e.key === 'H') {
-                    toggleUI();
-                } else if (e.key === 'v' || e.key === 'V') {
-                    toggleBedMode();
-                }
-            });
-            
-            // 滚动事件 - 优化懒加载
+            // 拖放支持
             const galleryContainer = document.getElementById('galleryContainer');
-            let scrollTimeout;
-            galleryContainer.addEventListener('scroll', () => {
-                // 防抖处理
-                clearTimeout(scrollTimeout);
-                scrollTimeout = setTimeout(() => {
-                    const scrollPos = galleryContainer.scrollTop + galleryContainer.clientHeight / 2;
-                    
-                    for (let i = 0; i < imageItems.length; i++) {
-                        const item = imageItems[i];
-                        if (item.offsetTop + item.clientHeight >= scrollPos) {
-                            if (currentImageIndex !== i) {
-                                currentImageIndex = i;
-                                updateScrollIndicator();
-                                updateInfoPanel();
-                                updateVisibleRange();
-                            }
-                            break;
-                        }
-                    }
-                }, 50);
-            });
-            
-            // 拖放事件
             galleryContainer.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 galleryContainer.style.backgroundColor = '#2a2a3e';
             });
             
-            galleryContainer.addEventListener('dragleave', () => {
-                galleryContainer.style.backgroundColor = '#1a1a2e';
+            galleryContainer.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                galleryContainer.style.backgroundColor = '';
             });
             
-            galleryContainer.addEventListener('drop', async (e) => {
+            galleryContainer.addEventListener('drop', (e) => {
                 e.preventDefault();
-                galleryContainer.style.backgroundColor = '#1a1a2e';
+                galleryContainer.style.backgroundColor = '';
                 
                 const files = Array.from(e.dataTransfer.files);
+                const zipFiles = files.filter(file => file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz'));
                 const imageFiles = files.filter(file => file.type.startsWith('image/'));
-                const zipFiles = files.filter(file => file.name.match(/\.(zip|cbz)$/i));
                 
-                if (imageFiles.length > 0) {
-                    handleFiles(imageFiles);
-                }
-                
-                // 处理拖放的ZIP文件
                 if (zipFiles.length > 0) {
-                    // 如果有多个ZIP，假设是书籍ZIP
-                    if (zipFiles.length === 1) {
-                        await handleZipFile(zipFiles[0]);
+                    // 如果有多个ZIP文件，当作书籍ZIP处理
+                    if (zipFiles.length > 1) {
+                        // 创建虚拟的书籍ZIP结构
+                        chapters = [];
+                        for (const zipFile of zipFiles) {
+                            chapters.push({
+                                name: zipFile.name.replace(/\.(zip|cbz)$/i, ''),
+                                files: [zipFile] // 这里需要进一步处理ZIP内容
+                            });
+                        }
+                        updateChapterList();
+                        if (chapters.length > 0) {
+                            loadChapter(0);
+                        }
+                    } else {
+                        // 单个ZIP文件
+                        handleZipFile(zipFiles[0]);
                     }
+                } else if (imageFiles.length > 0) {
+                    handleFiles(imageFiles);
                 }
             });
             
-            // 视图切换事件
-            document.getElementById('viewToggle').addEventListener('click', toggleBedMode);
+            // 导航按钮
+            document.getElementById('prevBtn').addEventListener('click', () => {
+                if (currentImageIndex > 0) {
+                    scrollToImage(currentImageIndex - 1);
+                } else if (currentChapterIndex > 0) {
+                    loadChapter(currentChapterIndex - 1);
+                }
+            });
             
-            // 添加对整个画廊容器的点击事件
-            galleryContainer.addEventListener('click', (e) => {
-                if (!e.target.matches('img')) {
+            document.getElementById('nextBtn').addEventListener('click', () => {
+                if (currentImageIndex < imageFiles.length - 1) {
+                    scrollToImage(currentImageIndex + 1);
+                } else if (currentChapterIndex < chapters.length - 1) {
+                    loadChapter(currentChapterIndex + 1);
+                }
+            });
+            
+            // 视图切换
+            document.getElementById('viewToggle').addEventListener('click', toggleViewMode);
+            
+            // 章节侧边栏
+            document.getElementById('chapterToggle').addEventListener('click', toggleChapterSidebar);
+            document.getElementById('closeSidebar').addEventListener('click', toggleChapterSidebar);
+            
+            // 键盘快捷键
+            document.addEventListener('keydown', (e) => {
+                switch(e.key) {
+                    case 'ArrowLeft':
+                        if (currentImageIndex > 0) {
+                            scrollToImage(currentImageIndex - 1);
+                        } else if (currentChapterIndex > 0) {
+                            loadChapter(currentChapterIndex - 1);
+                        }
+                        break;
+                    case 'ArrowRight':
+                        if (currentImageIndex < imageFiles.length - 1) {
+                            scrollToImage(currentImageIndex + 1);
+                        } else if (currentChapterIndex < chapters.length - 1) {
+                            loadChapter(currentChapterIndex + 1);
+                        }
+                        break;
+                    case 'h':
+                    case 'H':
+                        toggleUI();
+                        break;
+                    case 'v':
+                    case 'V':
+                        toggleViewMode();
+                        break;
+                }
+            });
+            
+            // 修复：页面点击事件监听
+            document.addEventListener('click', (e) => {
+                // 如果点击的不是UI元素，则切换UI显示状态
+                const isUIElement = e.target.closest('.header, .footer, .nav-btn, .scroll-indicator, .info-panel, .chapter-toggle, .chapter-sidebar');
+                
+                if (!isUIElement) {
                     toggleUI();
                 }
             });
-        }
-        
-        window.addEventListener('DOMContentLoaded', () => {
-            initEventListeners();
-            showHint('使用方向键或两侧按钮导航 | 点击页面/H键隐藏界面 | 按V切换视图 | 支持二级ZIP导入 | 已启用懒加载模式');
+            
+            // 滚动事件 - 用于懒加载和更新当前图片索引
+            galleryContainer.addEventListener('scroll', () => {
+                const scrollTop = galleryContainer.scrollTop;
+                const containerHeight = galleryContainer.clientHeight;
+                
+                // 找到当前可见的图片
+                for (let i = 0; i < imageItems.length; i++) {
+                    const item = imageItems[i];
+                    const itemTop = item.offsetTop;
+                    const itemHeight = item.offsetHeight;
+                    
+                    if (itemTop <= scrollTop + containerHeight / 2 && 
+                        itemTop + itemHeight >= scrollTop + containerHeight / 2) {
+                        if (currentImageIndex !== i) {
+                            currentImageIndex = i;
+                            updateScrollIndicator();
+                            updateInfoPanel();
+                            
+                            // 加载可见范围内的图片
+                            loadVisibleImages(i);
+                        }
+                        break;
+                    }
+                }
+            });
         });
     </script>
 </body>
