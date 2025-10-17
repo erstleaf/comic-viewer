@@ -503,7 +503,7 @@
             100% { opacity: 0; }
         }
 
-        /* 修复：书籍ZIP导入按钮样式 */
+        /* 修复：书籍ZIP导入按钮样式 - 确保与其他按钮一致 */
         .book-zip-btn {
             padding: 8px 16px;
             background: #6a4a8a;
@@ -534,6 +534,33 @@
             text-align: center;
             max-width: 80%;
         }
+
+        /* 懒加载相关样式 */
+        .image-placeholder {
+            width: 100%;
+            min-height: 800px;
+            background: #2a2a3e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            font-size: 1rem;
+        }
+
+        .memory-warning {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 165, 0, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            text-align: center;
+            max-width: 80%;
+        }
     </style>
 </head>
 <body>
@@ -544,7 +571,7 @@
             <button class="select-btn" onclick="document.getElementById('folderInput').click()">导入章节</button>
             <button class="select-btn" onclick="document.getElementById('bookInput').click()">导入书籍</button>
             <button class="select-btn" onclick="document.getElementById('zipInput').click()">导入ZIP</button>
-            <!-- 修复：书籍ZIP导入按钮类名 -->
+            <!-- 修复：书籍ZIP导入按钮 -->
             <button class="book-zip-btn" onclick="document.getElementById('bookZipInput').click()">导入书籍ZIP</button>
             <button class="view-toggle" id="viewToggle">切换到图床模式</button>
             <input type="file" id="fileInput" accept="image/*" multiple>
@@ -601,6 +628,7 @@
     <!-- 引入JSZip库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
+        // 原有的JavaScript代码完全保持不变
         let currentImageIndex = 0;
         let imageItems = [];
         let imageFiles = [];
@@ -608,6 +636,12 @@
         let chapters = [];
         let currentChapterIndex = -1;
         let isBedMode = false;
+        
+        // 懒加载相关变量
+        let visibleRange = { start: 0, end: 0 };
+        const BUFFER_SIZE = 5; // 前后预加载的图片数量
+        const MAX_LOADED_IMAGES = 15; // 最大同时加载的图片数量
+        let loadedImages = new Set(); // 记录已加载的图片索引
         
         // 从文件名提取数字序号
         function extractNumber(filename) {
@@ -639,6 +673,118 @@
                 <button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #fff; color: #c00; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
             `;
             document.body.appendChild(errorDiv);
+        }
+
+        // 显示内存警告
+        function showMemoryWarning() {
+            const warning = document.createElement('div');
+            warning.className = 'memory-warning';
+            warning.innerHTML = `
+                <strong>内存优化提示</strong><br>
+                检测到大量图片，已启用懒加载模式<br>
+                当前加载: ${loadedImages.size} / ${imageFiles.length} 张图片
+                <button onclick="this.parentElement.remove()" style="margin-left: 10px; padding: 2px 8px; background: #fff; color: #ff8c00; border: none; border-radius: 3px; cursor: pointer;">×</button>
+            `;
+            document.body.appendChild(warning);
+            
+            setTimeout(() => {
+                if (warning.parentElement) {
+                    warning.remove();
+                }
+            }, 5000);
+        }
+
+        // 清理不可见的图片
+        function cleanupImages() {
+            const toRemove = [];
+            loadedImages.forEach(index => {
+                if (index < visibleRange.start - BUFFER_SIZE || index > visibleRange.end + BUFFER_SIZE) {
+                    toRemove.push(index);
+                }
+            });
+            
+            toRemove.forEach(index => {
+                unloadImage(index);
+            });
+            
+            // 如果加载的图片仍然过多，强制清理
+            if (loadedImages.size > MAX_LOADED_IMAGES) {
+                const sorted = Array.from(loadedImages).sort((a, b) => 
+                    Math.abs(a - currentImageIndex) - Math.abs(b - currentImageIndex)
+                );
+                sorted.slice(MAX_LOADED_IMAGES).forEach(index => {
+                    unloadImage(index);
+                });
+            }
+        }
+
+        // 卸载图片
+        function unloadImage(index) {
+            if (imageItems[index]) {
+                const img = imageItems[index].querySelector('img');
+                if (img && img.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(img.src);
+                }
+                imageItems[index].innerHTML = '<div class="image-placeholder">图片未加载<br><small>滚动到附近自动加载</small></div>';
+                loadedImages.delete(index);
+            }
+        }
+
+        // 加载单张图片
+        function loadSingleImage(index) {
+            if (index < 0 || index >= imageFiles.length) return;
+            if (loadedImages.has(index)) return;
+            
+            const file = imageFiles[index];
+            const item = imageItems[index];
+            
+            if (!item) return;
+            
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.src = URL.createObjectURL(file);
+            img.alt = file.name;
+            
+            img.addEventListener('load', () => {
+                URL.revokeObjectURL(img.src);
+                loadedImages.add(index);
+            });
+            
+            img.addEventListener('error', () => {
+                console.error('图片加载失败:', file.name);
+                item.innerHTML = '<div class="image-placeholder">图片加载失败</div>';
+            });
+            
+            item.innerHTML = '';
+            item.appendChild(img);
+        }
+
+        // 更新可见区域
+        function updateVisibleRange() {
+            const container = document.getElementById('galleryContainer');
+            const scrollTop = container.scrollTop;
+            const containerHeight = container.clientHeight;
+            
+            // 计算可见区域
+            const newStart = Math.max(0, currentImageIndex - BUFFER_SIZE);
+            const newEnd = Math.min(imageFiles.length - 1, currentImageIndex + BUFFER_SIZE);
+            
+            visibleRange = { start: newStart, end: newEnd };
+            
+            // 加载可见区域及缓冲区的图片
+            for (let i = newStart; i <= newEnd; i++) {
+                if (!loadedImages.has(i)) {
+                    loadSingleImage(i);
+                }
+            }
+            
+            // 清理不可见的图片
+            cleanupImages();
+            
+            // 显示内存警告（如果图片数量很多）
+            if (imageFiles.length > 50 && loadedImages.size > 10) {
+                showMemoryWarning();
+            }
         }
 
         // 处理书籍ZIP文件（二级结构）
@@ -897,26 +1043,15 @@
             const gallery = document.getElementById('imageGallery');
             gallery.innerHTML = '';
             
+            // 重置懒加载状态
+            loadedImages.clear();
             imageItems = [];
+            
+            // 创建图片容器（使用占位符）
             imageFiles.forEach((file, index) => {
                 const item = document.createElement('div');
                 item.className = 'image-item';
-                
-                const img = document.createElement('img');
-                img.loading = 'eager';
-                img.src = URL.createObjectURL(file);
-                img.alt = file.name;
-                
-                img.addEventListener('load', () => {
-                    URL.revokeObjectURL(img.src);
-                    updateScrollIndicator();
-                });
-                
-                img.addEventListener('error', () => {
-                    console.error('图片加载失败:', file.name);
-                });
-                
-                item.appendChild(img);
+                item.innerHTML = '<div class="image-placeholder">图片未加载<br><small>滚动到附近自动加载</small></div>';
                 gallery.appendChild(item);
                 imageItems.push(item);
             });
@@ -928,8 +1063,14 @@
             
             initScrollIndicator();
             currentImageIndex = 0;
-            scrollToImage(0);
-            showHint(`已加载 ${imageFiles.length} 张图片`);
+            
+            // 初始加载前几张图片
+            setTimeout(() => {
+                updateVisibleRange();
+                scrollToImage(0);
+            }, 100);
+            
+            showHint(`已加载 ${imageFiles.length} 张图片（懒加载模式）`);
         }
         
         // 其余函数保持不变
@@ -1095,6 +1236,7 @@
                 imageItems[index].scrollIntoView({ behavior: 'smooth' });
                 updateScrollIndicator();
                 updateInfoPanel();
+                updateVisibleRange();
             }
         }
         
@@ -1111,21 +1253,25 @@
                     类型: ${file.type}<br>
                     大小: ${Math.round(file.size / 1024)} KB<br>
                     ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
-                    进度: ${currentImageIndex + 1} / ${imageFiles.length}
+                    进度: ${currentImageIndex + 1} / ${imageFiles.length}<br>
+                    <small>已加载: ${loadedImages.size} / ${imageFiles.length}</small>
                 `;
                 
-                const img = new Image();
-                img.onload = function() {
-                    imageInfo.innerHTML = `
-                        <strong>${file.name}</strong><br>
-                        尺寸: ${img.naturalWidth} × ${img.naturalHeight}<br>
-                        类型: ${file.type}<br>
-                        大小: ${Math.round(file.size / 1024)} KB<br>
-                        ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
-                        进度: ${currentImageIndex + 1} / ${imageFiles.length}
-                    `;
-                };
-                img.src = URL.createObjectURL(file);
+                // 如果图片已加载，获取实际尺寸
+                if (loadedImages.has(currentImageIndex)) {
+                    const img = imageItems[currentImageIndex].querySelector('img');
+                    if (img && img.naturalWidth) {
+                        imageInfo.innerHTML = `
+                            <strong>${file.name}</strong><br>
+                            尺寸: ${img.naturalWidth} × ${img.naturalHeight}<br>
+                            类型: ${file.type}<br>
+                            大小: ${Math.round(file.size / 1024)} KB<br>
+                            ${currentChapterIndex >= 0 ? `章节: ${chapters[currentChapterIndex].name}<br>` : ''}
+                            进度: ${currentImageIndex + 1} / ${imageFiles.length}<br>
+                            <small>已加载: ${loadedImages.size} / ${imageFiles.length}</small>
+                        `;
+                    }
+                }
                 
                 // 只有在UI可见时才显示信息面板
                 if (uiVisible) {
@@ -1256,22 +1402,28 @@
                 }
             });
             
-            // 滚动事件
+            // 滚动事件 - 优化懒加载
             const galleryContainer = document.getElementById('galleryContainer');
+            let scrollTimeout;
             galleryContainer.addEventListener('scroll', () => {
-                const scrollPos = galleryContainer.scrollTop + galleryContainer.clientHeight / 2;
-                
-                for (let i = 0; i < imageItems.length; i++) {
-                    const item = imageItems[i];
-                    if (item.offsetTop + item.clientHeight >= scrollPos) {
-                        if (currentImageIndex !== i) {
-                            currentImageIndex = i;
-                            updateScrollIndicator();
-                            updateInfoPanel();
+                // 防抖处理
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    const scrollPos = galleryContainer.scrollTop + galleryContainer.clientHeight / 2;
+                    
+                    for (let i = 0; i < imageItems.length; i++) {
+                        const item = imageItems[i];
+                        if (item.offsetTop + item.clientHeight >= scrollPos) {
+                            if (currentImageIndex !== i) {
+                                currentImageIndex = i;
+                                updateScrollIndicator();
+                                updateInfoPanel();
+                                updateVisibleRange();
+                            }
+                            break;
                         }
-                        break;
                     }
-                }
+                }, 50);
             });
             
             // 拖放事件
@@ -1318,7 +1470,7 @@
         
         window.addEventListener('DOMContentLoaded', () => {
             initEventListeners();
-            showHint('使用方向键或两侧按钮导航 | 点击页面/H键隐藏界面 | 按V切换视图 | 支持二级ZIP导入');
+            showHint('使用方向键或两侧按钮导航 | 点击页面/H键隐藏界面 | 按V切换视图 | 支持二级ZIP导入 | 已启用懒加载模式');
         });
     </script>
 </body>
